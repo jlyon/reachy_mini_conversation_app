@@ -175,6 +175,27 @@ async function getVoices() {
   }
 }
 
+async function getMcpUrls() {
+  const url = new URL("/mcp_urls", window.location.origin);
+  url.searchParams.set("_", Date.now().toString());
+  const resp = await fetchWithTimeout(url, {}, 3000);
+  if (!resp.ok) throw new Error("mcp_urls_failed");
+  return await resp.json();
+}
+
+async function saveMcpUrls(urls) {
+  const resp = await fetch("/mcp_urls", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ urls }),
+  });
+  const data = await resp.json().catch(() => ({}));
+  if (!resp.ok) {
+    throw new Error(data.detail || data.error || "save_failed");
+  }
+  return data;
+}
+
 function show(el, flag) {
   el.classList.toggle("hidden", !flag);
 }
@@ -218,6 +239,48 @@ async function init() {
   if (st.has_key) {
     statusEl.textContent = "";
     show(configuredPanel, true);
+  }
+
+  const mcpPanel = document.getElementById("mcp-panel");
+  const mcpTa = document.getElementById("mcp-urls-ta");
+  const mcpSave = document.getElementById("save-mcp-btn");
+  const mcpStatus = document.getElementById("mcp-status");
+
+  async function setupMcpSection() {
+    if (!mcpPanel || !mcpTa || !mcpSave || !mcpStatus) return;
+    show(mcpPanel, true);
+    mcpStatus.textContent = "Loading…";
+    mcpStatus.className = "status";
+    try {
+      const data = await getMcpUrls();
+      const urls = Array.isArray(data.urls) ? data.urls : [];
+      mcpTa.value = urls.join("\n");
+      mcpStatus.textContent = "";
+    } catch (e) {
+      mcpTa.value = "";
+      mcpStatus.textContent = "Could not load MCP URLs (save still works).";
+      mcpStatus.className = "status warn";
+    }
+    mcpSave.addEventListener("click", async () => {
+      const lines = (mcpTa.value || "")
+        .split(/\r?\n/)
+        .map((s) => s.trim())
+        .filter(Boolean);
+      mcpStatus.textContent = "Saving…";
+      mcpStatus.className = "status";
+      try {
+        await saveMcpUrls(lines);
+        mcpStatus.textContent = "Saved. Reconnect the voice session for tools to refresh.";
+        mcpStatus.className = "status ok";
+      } catch (e) {
+        mcpStatus.textContent = e.message || "Save failed.";
+        mcpStatus.className = "status error";
+      }
+    });
+  }
+
+  if (st.has_key) {
+    await setupMcpSection();
   }
 
   // Handler for "Change API key" button

@@ -109,6 +109,8 @@ class Config:
 
     # Optional
     MODEL_NAME = os.getenv("MODEL_NAME", "gpt-realtime")
+    # Streamable HTTP MCP server URLs (JSON array or delimited string); set via admin UI or .env
+    REACHY_MINI_MCP_URLS = os.getenv("REACHY_MINI_MCP_URLS", "")
     HF_HOME = os.getenv("HF_HOME", "./cache")
     LOCAL_VISION_MODEL = os.getenv("LOCAL_VISION_MODEL", "HuggingFaceTB/SmolVLM2-2.2B-Instruct")
     HF_TOKEN = os.getenv("HF_TOKEN")  # Optional, falls back to hf auth login if not set
@@ -191,6 +193,14 @@ class Config:
 
 
 config = Config()
+
+
+def mcp_urls_list() -> list[str]:
+    """Return MCP server URLs from REACHY_MINI_MCP_URLS (env / persisted config)."""
+    from reachy_mini_conversation_app.tools.mcp_bridge import parse_mcp_urls_value
+
+    raw = os.getenv("REACHY_MINI_MCP_URLS", "") or getattr(config, "REACHY_MINI_MCP_URLS", "") or ""
+    return parse_mcp_urls_value(str(raw))
 
 
 def set_custom_profile(profile: str | None) -> None:

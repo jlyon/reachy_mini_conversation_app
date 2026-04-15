@@ -23,6 +23,7 @@ from scipy.signal import resample
 from reachy_mini import ReachyMini
 from reachy_mini.media.media_manager import MediaBackend
 from reachy_mini_conversation_app.config import LOCKED_PROFILE, config
+from reachy_mini_conversation_app.headless_mcp_ui import mount_mcp_routes
 from reachy_mini_conversation_app.openai_realtime import OpenaiRealtimeHandler
 from reachy_mini_conversation_app.headless_personality_ui import mount_personality_routes
 
@@ -202,6 +203,45 @@ class LocalStream:
         except Exception as e:
             logger.warning("Failed to persist REACHY_MINI_CUSTOM_PROFILE: %s", e)
 
+    def _persist_mcp_urls(self, urls: List[str]) -> None:
+        """Persist MCP server URLs to instance .env, process env, and config."""
+        from reachy_mini_conversation_app.tools.mcp_bridge import format_mcp_urls_for_env
+
+        serialized = format_mcp_urls_for_env(urls)
+        try:
+            os.environ["REACHY_MINI_MCP_URLS"] = serialized
+        except Exception:
+            pass
+        try:
+            config.REACHY_MINI_MCP_URLS = serialized
+        except Exception:
+            pass
+
+        if not self._instance_path:
+            return
+        try:
+            env_path = Path(self._instance_path) / ".env"
+            lines = self._read_env_lines(env_path)
+            replaced = False
+            for i, ln in enumerate(lines):
+                if ln.strip().startswith("REACHY_MINI_MCP_URLS="):
+                    lines[i] = f"REACHY_MINI_MCP_URLS={serialized}"
+                    replaced = True
+                    break
+            if not replaced:
+                lines.append(f"REACHY_MINI_MCP_URLS={serialized}")
+            final_text = "\n".join(lines) + "\n"
+            env_path.write_text(final_text, encoding="utf-8")
+            logger.info("Persisted REACHY_MINI_MCP_URLS to %s", env_path)
+            try:
+                from dotenv import load_dotenv
+
+                load_dotenv(dotenv_path=str(env_path), override=True)
+            except Exception:
+                pass
+        except Exception as e:
+            logger.warning("Failed to persist REACHY_MINI_MCP_URLS: %s", e)
+
     def _read_persisted_personality(self) -> Optional[str]:
         """Read persisted startup personality from instance .env (if any)."""
         if not self._instance_path:
@@ -277,6 +317,17 @@ class LocalStream:
             self._persist_api_key(key)
             return JSONResponse({"ok": True})
 
+        def _get_mcp_urls() -> List[str]:
+            from reachy_mini_conversation_app.config import mcp_urls_list
+
+            return mcp_urls_list()
+
+        mount_mcp_routes(
+            self._settings_app,
+            get_urls=_get_mcp_urls,
+            set_urls=self._persist_mcp_urls,
+        )
+
         # POST /validate_api_key -> validate key without persisting it
         @self._settings_app.post("/validate_api_key")
         async def _validate_key(payload: ApiKeyPayload) -> JSONResponse:
@@ -337,6 +388,12 @@ class LocalStream:
                                 set_custom_profile(new_profile.strip() or None)
                             except Exception:
                                 pass  # Best-effort profile update
+                    mcp_raw = os.getenv("REACHY_MINI_MCP_URLS")
+                    if mcp_raw is not None:
+                        try:
+                            config.REACHY_MINI_MCP_URLS = mcp_raw
+                        except Exception:
+                            pass
             except Exception:
                 pass  # Instance .env loading is optional; continue with defaults
 

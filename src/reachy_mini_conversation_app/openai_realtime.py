@@ -17,12 +17,13 @@ from numpy.typing import NDArray
 from scipy.signal import resample
 from websockets.exceptions import ConnectionClosedError
 
-from reachy_mini_conversation_app.config import config
+from reachy_mini_conversation_app.config import config, mcp_urls_list
 from reachy_mini_conversation_app.prompts import get_session_voice, get_session_instructions
 from reachy_mini_conversation_app.tools.core_tools import (
     ToolDependencies,
     get_tool_specs,
 )
+from reachy_mini_conversation_app.tools.mcp_bridge import collect_mcp_tool_specs
 from reachy_mini_conversation_app.tools.background_tool_manager import (
     ToolCallRoutine,
     ToolNotification,
@@ -441,7 +442,21 @@ class OpenaiRealtimeHandler(AsyncStreamHandler):
     async def _run_realtime_session(self) -> None:
         """Establish and manage a single realtime session."""
         async with self.client.realtime.connect(model=config.MODEL_NAME) as conn:
+            self.deps.mcp_tool_routes = None
             try:
+                base_tools = get_tool_specs()
+                mcp_urls = mcp_urls_list()
+                combined_tools = list(base_tools)
+                if mcp_urls:
+                    extra_specs, router = await collect_mcp_tool_specs(mcp_urls)
+                    self.deps.mcp_tool_routes = router or None
+                    combined_tools.extend(extra_specs)
+                    if extra_specs:
+                        logger.info(
+                            "Registered %d MCP tool(s) from %d URL(s)",
+                            len(extra_specs),
+                            len(mcp_urls),
+                        )
                 await conn.session.update(
                     session={
                         "type": "realtime",
@@ -466,7 +481,7 @@ class OpenaiRealtimeHandler(AsyncStreamHandler):
                                 "voice": get_session_voice(),
                             },
                         },
-                        "tools": get_tool_specs(),  # type: ignore[typeddict-item]
+                        "tools": combined_tools,  # type: ignore[typeddict-item]
                         "tool_choice": "auto",
                     },
                 )
@@ -479,6 +494,7 @@ class OpenaiRealtimeHandler(AsyncStreamHandler):
                 # Persist the key to a newly created .env (copied from .env.example) if needed.
                 self._persist_api_key_if_needed()
             except Exception:
+                self.deps.mcp_tool_routes = None
                 logger.exception("Realtime session.update failed; aborting startup")
                 return
 
@@ -676,6 +692,8 @@ class OpenaiRealtimeHandler(AsyncStreamHandler):
 
                 # Stop background tool manager tasks (listener + cleanup) in all patus.
                 await self.tool_manager.shutdown()
+
+                self.deps.mcp_tool_routes = None
 
     # Microphone receive
     async def receive(self, frame: Tuple[int, NDArray[np.int16]]) -> None:

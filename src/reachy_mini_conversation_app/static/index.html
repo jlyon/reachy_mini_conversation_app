@@ -31,6 +31,27 @@
         <button id="change-key-btn" class="ghost">Change API key</button>
       </div>
 
+      <div id="mcp-panel" class="panel hidden">
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">Integrations</p>
+            <h2>MCP servers</h2>
+          </div>
+          <span class="chip">Optional</span>
+        </div>
+        <p class="muted">
+          Add streamable HTTP MCP endpoints (one per line). Tools from these servers are merged with Reachy tools for
+          the voice session. Changes apply after the next realtime session reconnect (e.g. apply personality or
+          restart the app).
+        </p>
+        <label for="mcp-urls-ta">MCP URLs</label>
+        <textarea id="mcp-urls-ta" rows="5" placeholder="https://example.com/mcp"></textarea>
+        <div class="actions">
+          <button id="save-mcp-btn">Save MCP URLs</button>
+          <p id="mcp-status" class="status"></p>
+        </div>
+      </div>
+
       <div id="form-panel" class="panel hidden">
         <div class="panel-heading">
           <div>

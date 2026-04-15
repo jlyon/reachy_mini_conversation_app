@@ -66,6 +66,8 @@ class ToolDependencies:
     vision_manager: Any | None = None
     head_wobbler: Any | None = None  # HeadWobbler for audio-reactive motion
     motion_duration_s: float = 1.0
+    # Maps OpenAI function name -> (MCP server URL, original tool name); set per realtime session
+    mcp_tool_routes: dict[str, tuple[str, str]] | None = None
 
 
 # Tool base class
@@ -304,6 +306,13 @@ def _safe_load_obj(args_json: str) -> Dict[str, Any]:
 
 
 async def _dispatch_tool_call(tool_name: str, args: Dict[str, Any], deps: ToolDependencies) -> Dict[str, Any]:
+    routes = deps.mcp_tool_routes
+    if routes and tool_name in routes:
+        from reachy_mini_conversation_app.tools.mcp_bridge import call_mcp_tool
+
+        url, orig = routes[tool_name]
+        return await call_mcp_tool(url, orig, args)
+
     tool = ALL_TOOLS.get(tool_name)
     if not tool:
         return {"error": f"unknown tool: {tool_name}"}
