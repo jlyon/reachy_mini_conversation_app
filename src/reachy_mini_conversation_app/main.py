@@ -7,6 +7,7 @@ import asyncio
 import argparse
 import threading
 from typing import Any, Dict, List, Optional
+from collections.abc import Mapping
 
 import gradio as gr
 from fastapi import FastAPI
@@ -20,6 +21,21 @@ from reachy_mini_conversation_app.utils import (
     handle_vision_stuff,
     log_connection_troubleshooting,
 )
+
+
+def _simulation_flags_from_daemon_status(status: Any) -> tuple[bool, bool]:
+    """Read simulation flags from ``get_status()`` (dict / Mapping or ``DaemonStatus``-like object)."""
+    if isinstance(status, Mapping):
+        se = status.get("simulation_enabled")
+        ms = status.get("mockup_sim_enabled")
+    else:
+        se = getattr(status, "simulation_enabled", None)
+        ms = getattr(status, "mockup_sim_enabled", None)
+
+    def _opt_bool(v: Any) -> bool:
+        return False if v is None else bool(v)
+
+    return _opt_bool(se), _opt_bool(ms)
 
 
 def update_chatbot(chatbot: List[Dict[str, Any]], response: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -53,10 +69,7 @@ def run(
     logger.info("Starting Reachy Mini Conversation App")
 
     if args.no_camera and args.head_tracker is not None:
-        logger.warning(
-            "Head tracking disabled: --no-camera flag is set. "
-            "Remove --no-camera to enable head tracking."
-        )
+        logger.warning("Head tracking disabled: --no-camera flag is set. Remove --no-camera to enable head tracking.")
 
     if robot is None:
         try:
@@ -68,36 +81,22 @@ def run(
             robot = ReachyMini(**robot_kwargs)
 
         except TimeoutError as e:
-            logger.error(
-                "Connection timeout: Failed to connect to Reachy Mini daemon. "
-                f"Details: {e}"
-            )
+            logger.error(f"Connection timeout: Failed to connect to Reachy Mini daemon. Details: {e}")
             log_connection_troubleshooting(logger, args.robot_name)
             sys.exit(1)
 
         except ConnectionError as e:
-            logger.error(
-                "Connection failed: Unable to establish connection to Reachy Mini. "
-                f"Details: {e}"
-            )
+            logger.error(f"Connection failed: Unable to establish connection to Reachy Mini. Details: {e}")
             log_connection_troubleshooting(logger, args.robot_name)
             sys.exit(1)
 
         except Exception as e:
-            logger.error(
-                f"Unexpected error during robot initialization: {type(e).__name__}: {e}"
-            )
+            logger.error(f"Unexpected error during robot initialization: {type(e).__name__}: {e}")
             logger.error("Please check your configuration and try again.")
             sys.exit(1)
 
     # Auto-enable Gradio in simulation mode (both MuJoCo for daemon and mockup-sim for desktop app)
-    status = robot.client.get_status()
-    if isinstance(status, dict):
-        simulation_enabled = status.get("simulation_enabled", False)
-        mockup_sim_enabled = status.get("mockup_sim_enabled", False)
-    else:
-        simulation_enabled = getattr(status, "simulation_enabled", False)
-        mockup_sim_enabled = getattr(status, "mockup_sim_enabled", False)
+    simulation_enabled, mockup_sim_enabled = _simulation_flags_from_daemon_status(robot.client.get_status())
 
     is_simulation = simulation_enabled or mockup_sim_enabled
 
@@ -239,7 +238,7 @@ class ReachyMiniConversationApp(ReachyMiniApp):  # type: ignore[misc]
 
         args, _ = parse_args()
 
-        # is_wireless = reachy_mini.client.get_status()["wireless_version"]
+        # is_wireless = getattr(reachy_mini.client.get_status(), "wireless_version", False)
         # args.head_tracker = None if is_wireless else "mediapipe"
 
         instance_path = self._get_instance_path().parent
